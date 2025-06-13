@@ -24,7 +24,7 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("PORT", "8080")
 	viper.SetDefault("DATABASE_URL", "postgres://user:password@localhost:5432/mediaconvert?sslmode=disable")
 	viper.SetDefault("REDIS_URL", "localhost:6379")
-	viper.SetDefault("S3_ENDPOINT", "localhost:9000")
+	viper.SetDefault("S3_ENDPOINT", "http://localhost:9000")
 	viper.SetDefault("S3_ACCESS_KEY", "minioadmin")
 	viper.SetDefault("S3_SECRET_KEY", "minioadmin")
 	viper.SetDefault("S3_BUCKET", "media")

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/db"
+	"github.com/mukund/mediaconvert/internal/system"
 )
 
 func main() {
@@ -13,6 +14,11 @@ func main() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Check System Dependencies
+	if err := system.CheckDependencies(); err != nil {
+		log.Fatalf("System dependency check failed: %v", err)
 	}
 
 	// Connect to DB

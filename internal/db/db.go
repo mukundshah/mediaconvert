@@ -23,5 +23,14 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 
 func Migrate(db *gorm.DB) error {
 	log.Println("Running migrations...")
-	return db.AutoMigrate(&models.User{}, &models.File{}, &models.Job{})
+	if err := db.AutoMigrate(&models.User{}, &models.File{}, &models.Pipeline{}, &models.Job{}); err != nil {
+		return err
+	}
+
+	// Add unique index for (UserID, Name) on Pipeline
+	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pipelines_user_name ON pipelines(user_id, name)").Error; err != nil {
+		log.Printf("Warning: Failed to create unique index on pipelines: %v", err)
+	}
+
+	return nil
 }

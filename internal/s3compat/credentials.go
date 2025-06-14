@@ -5,8 +5,6 @@ import (
 	"encoding/base32"
 	"fmt"
 	"strings"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 // GenerateAccessKey generates a random access key (20 characters, AWS-style)
@@ -50,13 +48,13 @@ func GenerateBucketName(userID uint) (string, error) {
 	return fmt.Sprintf("user-%d-%s", userID, suffix), nil
 }
 
-// HashSecretKey hashes a secret key using bcrypt
-func HashSecretKey(secretKey string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(secretKey), bcrypt.DefaultCost)
-	return string(bytes), err
-}
+// // HashSecretKey hashes a secret key using bcrypt
+// func HashSecretKey(secretKey string) (string, error) {
+// 	bytes, err := bcrypt.GenerateFromPassword([]byte(secretKey), bcrypt.DefaultCost)
+// 	return string(bytes), err
+// }
 
-// CheckSecretKey verifies a secret key against a hash
-func CheckSecretKey(hashedSecretKey, secretKey string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hashedSecretKey), []byte(secretKey))
-}
+// // CheckSecretKey verifies a secret key against a hash
+// func CheckSecretKey(hashedSecretKey, secretKey string) error {
+// 	return bcrypt.CompareHashAndPassword([]byte(hashedSecretKey), []byte(secretKey))
+// }

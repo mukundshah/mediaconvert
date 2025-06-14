@@ -95,17 +95,17 @@ func (h *S3CredentialHandler) CreateCredentials(c *gin.Context) {
 	}
 
 	// Hash secret key
-	hashedSecretKey, err := s3compat.HashSecretKey(secretKey)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash secret key"})
-		return
-	}
+	// hashedSecretKey, err := s3compat.HashSecretKey(secretKey)
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash secret key"})
+	// 	return
+	// }
 
 	// Create credential record
 	credential := models.S3Credential{
 		UserID:     userID,
 		AccessKey:  accessKey,
-		SecretKey:  hashedSecretKey,
+		SecretKey:  secretKey,
 		BucketName: bucketName,
 		IsActive:   true,
 	}

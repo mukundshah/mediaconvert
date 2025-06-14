@@ -18,10 +18,10 @@ test:
 	go test ./...
 
 docker-up:
-	docker compose up -d
+	docker compose -f docker-compose.infrastructure.yml up -d
 
 docker-down:
-	docker compose down
+	docker compose -f docker-compose.infrastructure.yml down
 
 clean:
 	rm -rf build

@@ -3,11 +3,15 @@ package main
 import (
 	"log"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
 	"github.com/mukund/mediaconvert/internal/auth"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/db"
 	"github.com/mukund/mediaconvert/internal/handlers"
+	"github.com/mukund/mediaconvert/internal/s3compat"
 	"github.com/mukund/mediaconvert/internal/system"
 )
 
@@ -37,11 +41,33 @@ func main() {
 	// Initialize Auth
 	auth.InitAuth(cfg.JWTSecret)
 
+	// Initialize S3 Client
+	s3Client := s3.NewFromConfig(aws.Config{
+		Region: cfg.S3Region,
+		Credentials: credentials.NewStaticCredentialsProvider(
+			cfg.S3AccessKey,
+			cfg.S3SecretKey,
+			"",
+		),
+		EndpointResolverWithOptions: aws.EndpointResolverWithOptionsFunc(
+			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					URL:               cfg.S3Endpoint,
+					HostnameImmutable: true,
+					Source:            aws.EndpointSourceCustom,
+				}, nil
+			},
+		),
+	}, func(o *s3.Options) {
+		o.UsePathStyle = true
+	})
+
 	// Setup Handlers
 	authHandler := handlers.NewAuthHandler(database)
 	jobHandler := handlers.NewJobHandler(database)
 	pipelineHandler := handlers.NewPipelineHandler(database)
 	s3CredentialHandler := handlers.NewS3CredentialHandler(database)
+	s3Handler := s3compat.NewS3Handler(database, s3Client, cfg)
 
 	// Setup Router
 	r := gin.Default()
@@ -90,6 +116,20 @@ func main() {
 		protected.POST("/s3-credentials", s3CredentialHandler.CreateCredentials)
 		protected.GET("/s3-credentials", s3CredentialHandler.ListCredentials)
 		protected.DELETE("/s3-credentials/:id", s3CredentialHandler.RevokeCredentials)
+	}
+
+	// S3-Compatible API routes (separate from /api)
+	s3Routes := r.Group("")
+	s3Routes.Use(s3compat.S3AuthMiddleware(database))
+	{
+		// Object operations
+		s3Routes.PUT("/:bucket/*key", s3Handler.PutObject)
+		s3Routes.GET("/:bucket/*key", s3Handler.GetObject)
+		s3Routes.HEAD("/:bucket/*key", s3Handler.HeadObject)
+		s3Routes.DELETE("/:bucket/*key", s3Handler.DeleteObject)
+
+		// List objects
+		s3Routes.GET("/:bucket", s3Handler.ListObjects)
 	}
 
 	log.Printf("Starting server on port %s", cfg.Port)

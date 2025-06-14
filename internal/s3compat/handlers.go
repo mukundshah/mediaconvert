@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/models"
+	"github.com/mukund/mediaconvert/internal/worker"
 	"gorm.io/gorm"
 )
 
@@ -21,13 +22,15 @@ type S3Handler struct {
 	db       *gorm.DB
 	s3Client *s3.Client
 	config   *config.Config
+	redis    *worker.RedisClient
 }
 
-func NewS3Handler(db *gorm.DB, s3Client *s3.Client, cfg *config.Config) *S3Handler {
+func NewS3Handler(db *gorm.DB, s3Client *s3.Client, cfg *config.Config, redis *worker.RedisClient) *S3Handler {
 	return &S3Handler{
 		db:       db,
 		s3Client: s3Client,
 		config:   cfg,
+		redis:    redis,
 	}
 }
 
@@ -95,6 +98,13 @@ func (h *S3Handler) PutObject(c *gin.Context) {
 
 			if err := h.db.Create(&job).Error; err != nil {
 				fmt.Printf("Warning: Failed to create job: %v\n", err)
+			} else {
+				// Publish job notification to Redis
+				if h.redis != nil {
+					if err := h.redis.PublishJobNotification(job.ID); err != nil {
+						fmt.Printf("Warning: Failed to publish job notification: %v\n", err)
+					}
+				}
 			}
 		} else {
 			fmt.Printf("Warning: Pipeline '%s' not found for user %d\n", pipelineName, userID)

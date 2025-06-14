@@ -13,6 +13,7 @@ import (
 	"github.com/mukund/mediaconvert/internal/handlers"
 	"github.com/mukund/mediaconvert/internal/s3compat"
 	"github.com/mukund/mediaconvert/internal/system"
+	"github.com/mukund/mediaconvert/internal/worker"
 )
 
 func main() {
@@ -62,12 +63,19 @@ func main() {
 		o.UsePathStyle = true
 	})
 
+	// Connect to Redis
+	redisClient, err := worker.NewRedisClient(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	defer redisClient.Close()
+
 	// Setup Handlers
 	authHandler := handlers.NewAuthHandler(database)
 	jobHandler := handlers.NewJobHandler(database)
 	pipelineHandler := handlers.NewPipelineHandler(database)
 	s3CredentialHandler := handlers.NewS3CredentialHandler(database)
-	s3Handler := s3compat.NewS3Handler(database, s3Client, cfg)
+	s3Handler := s3compat.NewS3Handler(database, s3Client, cfg, redisClient)
 
 	// Setup Router
 	r := gin.Default()

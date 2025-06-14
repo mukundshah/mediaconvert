@@ -39,6 +39,7 @@ func main() {
 
 	// Setup Handlers
 	authHandler := handlers.NewAuthHandler(database)
+	jobHandler := handlers.NewJobHandler(database)
 
 	// Setup Router
 	r := gin.Default()
@@ -57,7 +58,7 @@ func main() {
 		authGroup.POST("/login", authHandler.Login)
 	}
 
-	// Protected routes (example)
+	// Protected routes
 	protected := r.Group("/api")
 	protected.Use(auth.AuthMiddleware())
 	{
@@ -69,6 +70,12 @@ func main() {
 				"email":   email,
 			})
 		})
+
+		// Job routes
+		protected.GET("/jobs", jobHandler.ListJobs)
+		protected.GET("/jobs/:id", jobHandler.GetJob)
+		protected.POST("/jobs/:id/cancel", jobHandler.CancelJob)
+		protected.POST("/jobs/:id/rerun", jobHandler.RerunJob)
 	}
 
 	log.Printf("Starting server on port %s", cfg.Port)

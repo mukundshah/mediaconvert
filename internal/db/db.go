@@ -28,7 +28,7 @@ func Migrate(db *gorm.DB) error {
 			&models.File{},
 			&models.Pipeline{},
 			&models.Job{},
-			&models.JobStatusHistory{}
+			&models.JobStatusHistory{},
 		); err != nil {
 		return err
 	}

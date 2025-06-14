@@ -30,6 +30,7 @@ const (
 	JobStatusProcessing JobStatus = "processing"
 	JobStatusCompleted  JobStatus = "completed"
 	JobStatusFailed     JobStatus = "failed"
+	JobStatusCanceled   JobStatus = "canceled"
 )
 
 type PipelineFormat string
@@ -59,4 +60,14 @@ type Job struct {
 	ResultInfo   datatypes.JSON // JSON storing result details (e.g., output paths)
 	Error        string
 	FinishedAt   *time.Time
+}
+
+type JobStatusHistory struct {
+	gorm.Model
+	JobID       uint
+	Job         Job
+	FromStatus  JobStatus `gorm:"type:varchar(20)"`
+	ToStatus    JobStatus `gorm:"type:varchar(20);not null"`
+	Message     string
+	TriggeredBy string `gorm:"type:varchar(20);not null"` // "user", "system", "worker"
 }

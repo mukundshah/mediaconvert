@@ -28,11 +28,22 @@ type S3CredentialResponse struct {
 	CreatedAt  string `json:"created_at"`
 }
 
+type CreateCredentialRequest struct {
+	BucketName string `json:"bucket_name,omitempty"` // Optional custom bucket name
+}
+
 // CreateCredentials generates new S3 credentials for the user
 func (h *S3CredentialHandler) CreateCredentials(c *gin.Context) {
 	userID, exists := auth.GetUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Parse request body
+	var req CreateCredentialRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
@@ -57,10 +68,30 @@ func (h *S3CredentialHandler) CreateCredentials(c *gin.Context) {
 		return
 	}
 
-	bucketName, err := s3compat.GenerateBucketName(userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate bucket name"})
-		return
+	// Handle bucket name
+	var bucketName string
+	if req.BucketName != "" {
+		// Validate custom bucket name
+		if !isValidBucketName(req.BucketName) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid bucket name. Must be 3-63 characters, lowercase letters, numbers, and hyphens only"})
+			return
+		}
+
+		// Check if bucket name is already taken (globally unique)
+		var existingBucket models.S3Credential
+		if err := h.db.Where("bucket_name = ?", req.BucketName).First(&existingBucket).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "Bucket name already taken"})
+			return
+		}
+
+		bucketName = req.BucketName
+	} else {
+		// Generate bucket name
+		bucketName, err = s3compat.GenerateBucketName(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate bucket name"})
+			return
+		}
 	}
 
 	// Hash secret key
@@ -154,4 +185,67 @@ func (h *S3CredentialHandler) RevokeCredentials(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Credentials revoked successfully"})
+}
+
+// CheckBucketAvailability checks if a bucket name is available
+func (h *S3CredentialHandler) CheckBucketAvailability(c *gin.Context) {
+	bucketName := c.Query("name")
+	if bucketName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Bucket name is required"})
+		return
+	}
+
+	// Validate bucket name format
+	if !isValidBucketName(bucketName) {
+		c.JSON(http.StatusOK, gin.H{
+			"available": false,
+			"reason":    "Invalid bucket name format. Must be 3-63 characters, lowercase letters, numbers, and hyphens only",
+		})
+		return
+	}
+
+	// Check if bucket name is taken
+	var existingBucket models.S3Credential
+	if err := h.db.Where("bucket_name = ?", bucketName).First(&existingBucket).Error; err == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"available": false,
+			"reason":    "Bucket name already taken",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"available": true,
+		"name":      bucketName,
+	})
+}
+
+// isValidBucketName validates bucket name according to S3 naming rules
+func isValidBucketName(name string) bool {
+	// Length check
+	if len(name) < 3 || len(name) > 63 {
+		return false
+	}
+
+	// Must start and end with lowercase letter or number
+	if !isLowerAlphaNum(rune(name[0])) || !isLowerAlphaNum(rune(name[len(name)-1])) {
+		return false
+	}
+
+	// Check each character
+	for i, c := range name {
+		if !isLowerAlphaNum(c) && c != '-' {
+			return false
+		}
+		// No consecutive hyphens
+		if c == '-' && i > 0 && name[i-1] == '-' {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isLowerAlphaNum(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
 }

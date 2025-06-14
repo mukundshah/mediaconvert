@@ -115,6 +115,7 @@ func main() {
 		// S3 Credential routes
 		protected.POST("/s3-credentials", s3CredentialHandler.CreateCredentials)
 		protected.GET("/s3-credentials", s3CredentialHandler.ListCredentials)
+		protected.GET("/s3-credentials/check-availability", s3CredentialHandler.CheckBucketAvailability)
 		protected.DELETE("/s3-credentials/:id", s3CredentialHandler.RevokeCredentials)
 	}
 

@@ -1,6 +1,7 @@
 package s3compat
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,9 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/models"
 	"github.com/mukund/mediaconvert/internal/worker"
@@ -19,18 +19,18 @@ import (
 )
 
 type S3Handler struct {
-	db       *gorm.DB
-	s3Client *s3.Client
-	config   *config.Config
-	redis    *worker.RedisClient
+	db           *gorm.DB
+	minioClient  *minio.Client
+	config       *config.Config
+	redis        *worker.RedisClient
 }
 
-func NewS3Handler(db *gorm.DB, s3Client *s3.Client, cfg *config.Config, redis *worker.RedisClient) *S3Handler {
+func NewS3Handler(db *gorm.DB, minioClient *minio.Client, cfg *config.Config, redis *worker.RedisClient) *S3Handler {
 	return &S3Handler{
-		db:       db,
-		s3Client: s3Client,
-		config:   cfg,
-		redis:    redis,
+		db:          db,
+		minioClient: minioClient,
+		config:      cfg,
+		redis:       redis,
 	}
 }
 
@@ -44,6 +44,9 @@ func (h *S3Handler) PutObject(c *gin.Context) {
 		key = strings.TrimPrefix(c.Request.URL.Path, "/"+bucket+"/")
 	}
 
+	// Remove leading slash from key if present (Gin's *key param includes it)
+	key = strings.TrimPrefix(key, "/")
+
 	// Validate bucket access
 	if !ValidateBucketAccess(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to bucket"})
@@ -53,16 +56,34 @@ func (h *S3Handler) PutObject(c *gin.Context) {
 	// Build S3 key with user prefix
 	s3Key := fmt.Sprintf("users/%d/%s", userID, key)
 
-	// Upload to S3
-	_, err := h.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
-		Bucket:      aws.String(h.config.S3Bucket),
-		Key:         aws.String(s3Key),
-		Body:        c.Request.Body,
-		ContentType: aws.String(c.GetHeader("Content-Type")),
-	})
+	// Read request body into memory
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		fmt.Printf("Failed to read request body: %v\n", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upload file"})
+		return
+	}
+
+	// Upload to MinIO
+	contentType := c.GetHeader("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	_, err = h.minioClient.PutObject(
+		context.Background(),
+		h.config.S3Bucket,
+		s3Key,
+		bytes.NewReader(bodyBytes),
+		int64(len(bodyBytes)),
+		minio.PutObjectOptions{ContentType: contentType},
+	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file"})
+		fmt.Printf("MinIO Upload Error: %v\n", err)
+		fmt.Printf("  Bucket: %s\n", h.config.S3Bucket)
+		fmt.Printf("  Key: %s\n", s3Key)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file: " + err.Error()})
 		return
 	}
 
@@ -119,13 +140,9 @@ func (h *S3Handler) PutObject(c *gin.Context) {
 // GetObject handles S3 GET object requests (download)
 func (h *S3Handler) GetObject(c *gin.Context) {
 	userID, _ := GetUserIDFromS3Context(c)
-	bucket := c.Param("bucket")
-	key := c.Param("key")
+	key := strings.TrimPrefix(c.Param("key"), "/")
 
-	if key == "" {
-		key = strings.TrimPrefix(c.Request.URL.Path, "/"+bucket+"/")
-	}
-
+	// Validate bucket access
 	if !ValidateBucketAccess(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to bucket"})
 		return
@@ -134,35 +151,29 @@ func (h *S3Handler) GetObject(c *gin.Context) {
 	// Build S3 key
 	s3Key := fmt.Sprintf("users/%d/%s", userID, key)
 
-	// Get object from S3
-	result, err := h.s3Client.GetObject(context.Background(), &s3.GetObjectInput{
-		Bucket: aws.String(h.config.S3Bucket),
-		Key:    aws.String(s3Key),
-	})
+	// Get object from MinIO
+	object, err := h.minioClient.GetObject(context.Background(), h.config.S3Bucket, s3Key, minio.GetObjectOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get file"})
+		return
+	}
+	defer object.Close()
 
+	// Get object info for content type and size
+	stat, err := object.Stat()
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Object not found"})
 		return
 	}
-	defer result.Body.Close()
 
 	// Set headers
-	if result.ContentType != nil {
-		c.Header("Content-Type", *result.ContentType)
-	}
-	if result.ContentLength != nil {
-		c.Header("Content-Length", fmt.Sprintf("%d", *result.ContentLength))
-	}
-	if result.ETag != nil {
-		c.Header("ETag", *result.ETag)
-	}
-	if result.LastModified != nil {
-		c.Header("Last-Modified", result.LastModified.Format(http.TimeFormat))
-	}
+	c.Header("Content-Type", stat.ContentType)
+	c.Header("Content-Length", fmt.Sprintf("%d", stat.Size))
+	c.Header("ETag", fmt.Sprintf("\"%s\"", stat.ETag))
+	c.Header("Last-Modified", stat.LastModified.Format(http.TimeFormat))
 
-	// Stream response
-	c.Status(http.StatusOK)
-	io.Copy(c.Writer, result.Body)
+	// Stream the object
+	c.DataFromReader(http.StatusOK, stat.Size, stat.ContentType, object, nil)
 }
 
 // HeadObject handles S3 HEAD object requests (metadata)
@@ -180,32 +191,21 @@ func (h *S3Handler) HeadObject(c *gin.Context) {
 		return
 	}
 
+	// Build S3 key
 	s3Key := fmt.Sprintf("users/%d/%s", userID, key)
 
-	// Head object from S3
-	result, err := h.s3Client.HeadObject(context.Background(), &s3.HeadObjectInput{
-		Bucket: aws.String(h.config.S3Bucket),
-		Key:    aws.String(s3Key),
-	})
-
+	// Get object metadata from MinIO
+	stat, err := h.minioClient.StatObject(context.Background(), h.config.S3Bucket, s3Key, minio.StatObjectOptions{})
 	if err != nil {
-		c.Status(http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Object not found"})
 		return
 	}
 
 	// Set headers
-	if result.ContentType != nil {
-		c.Header("Content-Type", *result.ContentType)
-	}
-	if result.ContentLength != nil {
-		c.Header("Content-Length", fmt.Sprintf("%d", *result.ContentLength))
-	}
-	if result.ETag != nil {
-		c.Header("ETag", *result.ETag)
-	}
-	if result.LastModified != nil {
-		c.Header("Last-Modified", result.LastModified.Format(http.TimeFormat))
-	}
+	c.Header("Content-Type", stat.ContentType)
+	c.Header("Content-Length", fmt.Sprintf("%d", stat.Size))
+	c.Header("ETag", fmt.Sprintf("\"%s\"", stat.ETag))
+	c.Header("Last-Modified", stat.LastModified.Format(http.TimeFormat))
 
 	c.Status(http.StatusOK)
 }
@@ -225,16 +225,13 @@ func (h *S3Handler) DeleteObject(c *gin.Context) {
 		return
 	}
 
+	// Build S3 key
 	s3Key := fmt.Sprintf("users/%d/%s", userID, key)
 
-	// Delete from S3
-	_, err := h.s3Client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
-		Bucket: aws.String(h.config.S3Bucket),
-		Key:    aws.String(s3Key),
-	})
-
+	// Delete from MinIO
+	err := h.minioClient.RemoveObject(context.Background(), h.config.S3Bucket, s3Key, minio.RemoveObjectOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete object"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete file"})
 		return
 	}
 
@@ -259,16 +256,11 @@ func (h *S3Handler) ListObjects(c *gin.Context) {
 		prefix = fmt.Sprintf("users/%d/%s", userID, reqPrefix)
 	}
 
-	// List objects from S3
-	result, err := h.s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(h.config.S3Bucket),
-		Prefix: aws.String(prefix),
+	// List objects from MinIO
+	objectCh := h.minioClient.ListObjects(context.Background(), h.config.S3Bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
 	})
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list objects"})
-		return
-	}
 
 	// Build S3-compatible XML response
 	type S3Object struct {
@@ -286,14 +278,19 @@ func (h *S3Handler) ListObjects(c *gin.Context) {
 	}
 
 	var contents []S3Object
-	for _, obj := range result.Contents {
+	for object := range objectCh {
+		if object.Err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list objects"})
+			return
+		}
+
 		// Strip user prefix from key
-		displayKey := strings.TrimPrefix(*obj.Key, prefix)
+		displayKey := strings.TrimPrefix(object.Key, prefix)
 		contents = append(contents, S3Object{
 			Key:          displayKey,
-			LastModified: *obj.LastModified,
-			ETag:         *obj.ETag,
-			Size:         *obj.Size,
+			LastModified: object.LastModified,
+			ETag:         object.ETag,
+			Size:         object.Size,
 			StorageClass: "STANDARD",
 		})
 	}

@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/minio/minio-go/v7"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/models"
 	"github.com/mukund/mediaconvert/internal/pipeline"
@@ -19,19 +17,19 @@ import (
 
 // JobProcessor handles job processing
 type JobProcessor struct {
-	db       *gorm.DB
-	s3Client *s3.Client
-	config   *config.Config
-	redis    *RedisClient
+	db          *gorm.DB
+	minioClient *minio.Client
+	config      *config.Config
+	redis       *RedisClient
 }
 
 // NewJobProcessor creates a new job processor
-func NewJobProcessor(db *gorm.DB, s3Client *s3.Client, cfg *config.Config, redis *RedisClient) *JobProcessor {
+func NewJobProcessor(db *gorm.DB, minioClient *minio.Client, cfg *config.Config, redis *RedisClient) *JobProcessor {
 	return &JobProcessor{
-		db:       db,
-		s3Client: s3Client,
-		config:   cfg,
-		redis:    redis,
+		db:          db,
+		minioClient: minioClient,
+		config:      cfg,
+		redis:       redis,
 	}
 }
 
@@ -110,45 +108,19 @@ func (p *JobProcessor) ProcessJob(jobID uint) error {
 }
 
 func (p *JobProcessor) downloadFile(s3Key, destPath string) error {
-	result, err := p.s3Client.GetObject(context.Background(), &s3.GetObjectInput{
-		Bucket: aws.String(p.config.S3Bucket),
-		Key:    aws.String(s3Key),
-	})
-	if err != nil {
-		return err
-	}
-	defer result.Body.Close()
-
-	file, err := os.Create(destPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(file, result.Body)
-	return err
+	return p.minioClient.FGetObject(context.Background(), p.config.S3Bucket, s3Key, destPath, minio.GetObjectOptions{})
 }
 
 func (p *JobProcessor) uploadResults(userID, jobID uint, files []string) ([]string, error) {
 	var s3Keys []string
 
 	for _, filePath := range files {
-		file, err := os.Open(filePath)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
 		// Build S3 key
 		fileName := filepath.Base(filePath)
 		s3Key := fmt.Sprintf("users/%d/results/job-%d/%s", userID, jobID, fileName)
 
 		// Upload to S3
-		_, err = p.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
-			Bucket: aws.String(p.config.S3Bucket),
-			Key:    aws.String(s3Key),
-			Body:   file,
-		})
+		_, err := p.minioClient.FPutObject(context.Background(), p.config.S3Bucket, s3Key, filePath, minio.PutObjectOptions{})
 		if err != nil {
 			return nil, err
 		}

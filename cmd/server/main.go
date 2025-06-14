@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/url"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/mukund/mediaconvert/internal/auth"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/db"
@@ -42,26 +43,37 @@ func main() {
 	// Initialize Auth
 	auth.InitAuth(cfg.JWTSecret)
 
-	// Initialize S3 Client
-	s3Client := s3.NewFromConfig(aws.Config{
+	// Initialize MinIO Client
+	s3Url, err := url.Parse(cfg.S3Endpoint)
+	if err != nil {
+		log.Fatalf("Failed to parse S3 endpoint: %v", err)
+	}
+
+	useSSL := s3Url.Scheme == "https"
+	endpoint := s3Url.Host
+
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		Secure: useSSL,
 		Region: cfg.S3Region,
-		Credentials: credentials.NewStaticCredentialsProvider(
-			cfg.S3AccessKey,
-			cfg.S3SecretKey,
-			"",
-		),
-		EndpointResolverWithOptions: aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:               cfg.S3Endpoint,
-					HostnameImmutable: true,
-					Source:            aws.EndpointSourceCustom,
-				}, nil
-			},
-		),
-	}, func(o *s3.Options) {
-		o.UsePathStyle = true
 	})
+	if err != nil {
+		log.Fatalf("Failed to initialize MinIO client: %v", err)
+	}
+
+	// Ensure bucket exists
+	ctx := context.Background()
+	exists, err := minioClient.BucketExists(ctx, cfg.S3Bucket)
+	if err != nil {
+		log.Fatalf("Failed to check if bucket exists: %v", err)
+	}
+	if !exists {
+		err = minioClient.MakeBucket(ctx, cfg.S3Bucket, minio.MakeBucketOptions{Region: cfg.S3Region})
+		if err != nil {
+			log.Fatalf("Failed to create bucket: %v", err)
+		}
+		log.Printf("Created bucket: %s", cfg.S3Bucket)
+	}
 
 	// Connect to Redis
 	redisClient, err := worker.NewRedisClient(cfg.RedisURL)
@@ -75,7 +87,7 @@ func main() {
 	jobHandler := handlers.NewJobHandler(database)
 	pipelineHandler := handlers.NewPipelineHandler(database)
 	s3CredentialHandler := handlers.NewS3CredentialHandler(database)
-	s3Handler := s3compat.NewS3Handler(database, s3Client, cfg, redisClient)
+	s3Handler := s3compat.NewS3Handler(database, minioClient, cfg, redisClient)
 
 	// Setup Router
 	r := gin.Default()

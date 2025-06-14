@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/db"
 	"github.com/mukund/mediaconvert/internal/worker"
@@ -31,26 +31,23 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	// Initialize S3 Client
-	s3Client := s3.NewFromConfig(aws.Config{
+	// Initialize MinIO Client
+	s3Url, err := url.Parse(cfg.S3Endpoint)
+	if err != nil {
+		log.Fatalf("Failed to parse S3 endpoint: %v", err)
+	}
+
+	useSSL := s3Url.Scheme == "https"
+	endpoint := s3Url.Host
+
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		Secure: useSSL,
 		Region: cfg.S3Region,
-		Credentials: credentials.NewStaticCredentialsProvider(
-			cfg.S3AccessKey,
-			cfg.S3SecretKey,
-			"",
-		),
-		EndpointResolverWithOptions: aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:               cfg.S3Endpoint,
-					HostnameImmutable: true,
-					Source:            aws.EndpointSourceCustom,
-				}, nil
-			},
-		),
-	}, func(o *s3.Options) {
-		o.UsePathStyle = true
 	})
+	if err != nil {
+		log.Fatalf("Failed to initialize MinIO client: %v", err)
+	}
 
 	// Connect to Redis
 	redisClient, err := worker.NewRedisClient(cfg.RedisURL)
@@ -60,7 +57,7 @@ func main() {
 	defer redisClient.Close()
 
 	// Create job processor
-	processor := worker.NewJobProcessor(database, s3Client, cfg, redisClient)
+	processor := worker.NewJobProcessor(database, minioClient, cfg, redisClient)
 
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

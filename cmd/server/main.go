@@ -40,6 +40,7 @@ func main() {
 	// Setup Handlers
 	authHandler := handlers.NewAuthHandler(database)
 	jobHandler := handlers.NewJobHandler(database)
+	pipelineHandler := handlers.NewPipelineHandler(database)
 
 	// Setup Router
 	r := gin.Default()
@@ -76,6 +77,13 @@ func main() {
 		protected.GET("/jobs/:id", jobHandler.GetJob)
 		protected.POST("/jobs/:id/cancel", jobHandler.CancelJob)
 		protected.POST("/jobs/:id/rerun", jobHandler.RerunJob)
+
+		// Pipeline routes
+		protected.POST("/pipelines", pipelineHandler.CreatePipeline)
+		protected.GET("/pipelines", pipelineHandler.ListPipelines)
+		protected.GET("/pipelines/:id", pipelineHandler.GetPipeline)
+		protected.PUT("/pipelines/:id", pipelineHandler.UpdatePipeline)
+		protected.DELETE("/pipelines/:id", pipelineHandler.DeletePipeline)
 	}
 
 	log.Printf("Starting server on port %s", cfg.Port)

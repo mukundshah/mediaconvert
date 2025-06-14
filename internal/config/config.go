@@ -14,6 +14,7 @@ type Config struct {
 	S3SecretKey string `mapstructure:"S3_SECRET_KEY"`
 	S3Bucket    string `mapstructure:"S3_BUCKET"`
 	S3Region    string `mapstructure:"S3_REGION"`
+	JWTSecret   string `mapstructure:"JWT_SECRET"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -29,6 +30,7 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("S3_SECRET_KEY", "minioadmin")
 	viper.SetDefault("S3_BUCKET", "media")
 	viper.SetDefault("S3_REGION", "us-east-1")
+	viper.SetDefault("JWT_SECRET", "change-this-secret-in-production")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

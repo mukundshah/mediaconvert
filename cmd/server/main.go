@@ -125,6 +125,7 @@ func main() {
 	{
 		// Object operations
 		s3Routes.PUT("/:bucket/*key", s3Handler.PutObject)
+		s3Routes.POST("/:bucket/*key", s3Handler.PutObject) // AWS CLI uses POST for multipart
 		s3Routes.GET("/:bucket/*key", s3Handler.GetObject)
 		s3Routes.HEAD("/:bucket/*key", s3Handler.HeadObject)
 		s3Routes.DELETE("/:bucket/*key", s3Handler.DeleteObject)

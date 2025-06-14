@@ -151,7 +151,7 @@ func CalculateSignature(r *http.Request, secretKey string, signatureInfo *Signat
 	canonicalRequest := createCanonicalRequest(r, signatureInfo)
 
 	// Step 2: Create string to sign
-	stringToSign := createStringToSign(canonicalRequest, signatureInfo)
+	stringToSign := createStringToSign(r, canonicalRequest, signatureInfo)
 
 	// Step 3: Calculate signing key
 	signingKey := getSigningKey(secretKey, signatureInfo.Date, signatureInfo.Region, signatureInfo.Service)
@@ -219,7 +219,11 @@ func getCanonicalHeaders(r *http.Request, signedHeaders string) (string, string)
 
 	for _, name := range headerNames {
 		name = strings.ToLower(strings.TrimSpace(name))
-		if values := r.Header.Values(name); len(values) > 0 {
+
+		// Special case for 'host' header
+		if name == "host" {
+			headers[name] = []string{r.Host}
+		} else if values := r.Header.Values(name); len(values) > 0 {
 			headers[name] = values
 		}
 	}
@@ -247,12 +251,22 @@ func getPayloadHash(r *http.Request) string {
 	return "UNSIGNED-PAYLOAD"
 }
 
-func createStringToSign(canonicalRequest string, signatureInfo *SignatureInfo) string {
+func createStringToSign(r *http.Request, canonicalRequest string, signatureInfo *SignatureInfo) string {
 	hashedCanonicalRequest := sha256Hash(canonicalRequest)
+
+	// Get timestamp from X-Amz-Date header or query parameter
+	timestamp := r.Header.Get("X-Amz-Date")
+	if timestamp == "" && signatureInfo.IsPresigned {
+		timestamp = r.URL.Query().Get("X-Amz-Date")
+	}
+	if timestamp == "" {
+		// Fallback to date with midnight time
+		timestamp = signatureInfo.Date + "T000000Z"
+	}
 
 	return fmt.Sprintf("%s\n%s\n%s\n%s",
 		signatureInfo.Algorithm,
-		signatureInfo.Date+"T000000Z", // Simplified - should use actual timestamp
+		timestamp,
 		signatureInfo.CredentialScope,
 		hashedCanonicalRequest,
 	)

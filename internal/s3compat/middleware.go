@@ -56,6 +56,24 @@ func S3AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Determine the requested bucket name
+		requestedBucket := c.Param("bucket")
+		if requestedBucket == "" {
+			// Try to get from path if not in param (e.g., path-style access)
+			path := c.Request.URL.Path
+			parts := strings.Split(strings.Trim(path, "/"), "/")
+			if len(parts) > 0 {
+				requestedBucket = parts[0]
+			}
+		}
+
+		// Verify bucket access
+		if requestedBucket != "" && requestedBucket != credential.BucketName {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to this bucket"})
+			c.Abort()
+			return
+		}
+
 		// Set user context
 		c.Set("user_id", credential.UserID)
 		c.Set("s3_credential_id", credential.ID)

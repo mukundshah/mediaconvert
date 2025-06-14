@@ -41,6 +41,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(database)
 	jobHandler := handlers.NewJobHandler(database)
 	pipelineHandler := handlers.NewPipelineHandler(database)
+	s3CredentialHandler := handlers.NewS3CredentialHandler(database)
 
 	// Setup Router
 	r := gin.Default()
@@ -84,6 +85,11 @@ func main() {
 		protected.GET("/pipelines/:id", pipelineHandler.GetPipeline)
 		protected.PUT("/pipelines/:id", pipelineHandler.UpdatePipeline)
 		protected.DELETE("/pipelines/:id", pipelineHandler.DeletePipeline)
+
+		// S3 Credential routes
+		protected.POST("/s3-credentials", s3CredentialHandler.CreateCredentials)
+		protected.GET("/s3-credentials", s3CredentialHandler.ListCredentials)
+		protected.DELETE("/s3-credentials/:id", s3CredentialHandler.RevokeCredentials)
 	}
 
 	log.Printf("Starting server on port %s", cfg.Port)

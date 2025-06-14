@@ -71,3 +71,13 @@ type JobStatusHistory struct {
 	Message     string
 	TriggeredBy string `gorm:"type:varchar(20);not null"` // "user", "system", "worker"
 }
+
+type S3Credential struct {
+	gorm.Model
+	UserID     uint
+	User       User
+	AccessKey  string `gorm:"uniqueIndex;not null;size:20"`
+	SecretKey  string `gorm:"not null"` // Hashed
+	BucketName string `gorm:"uniqueIndex;not null"`
+	IsActive   bool   `gorm:"default:true"`
+}

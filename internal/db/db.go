@@ -29,6 +29,7 @@ func Migrate(db *gorm.DB) error {
 			&models.Pipeline{},
 			&models.Job{},
 			&models.JobStatusHistory{},
+			&models.S3Credential{},
 		); err != nil {
 		return err
 	}

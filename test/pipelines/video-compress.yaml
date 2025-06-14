@@ -1,0 +1,11 @@
+name: "video-compress"
+description: "Compress video to H264 with reasonable quality"
+steps:
+  - operation: "transcode"
+    input: "${input}"
+    output: "${output}/compressed.mp4"
+    params:
+      codec: "h264"
+      quality: 23
+      audio_codec: "aac"
+      audio_bitrate: "128k"

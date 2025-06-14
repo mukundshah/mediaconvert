@@ -1,0 +1,11 @@
+name: "video-thumbnail"
+description: "Generate thumbnail from video"
+steps:
+  - operation: "generate_thumbnail"
+    input: "${input}"
+    output: "${output}/thumbnail.jpg"
+    params:
+      type: "video"
+      timestamp: "00:00:02"
+      width: 320
+      height: 240

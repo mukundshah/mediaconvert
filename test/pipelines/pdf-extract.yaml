@@ -1,0 +1,15 @@
+name: "pdf-extract"
+description: "Extract text and generate thumbnail from PDF"
+steps:
+  - operation: "extract_text"
+    input: "${input}"
+    output: "${output}/text.txt"
+    params: {}
+
+  - operation: "generate_thumbnail"
+    input: "${input}"
+    output: "${output}/preview.jpg"
+    params:
+      type: "pdf"
+      width: 400
+      height: 600

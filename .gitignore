@@ -1,34 +1,38 @@
-# Binaries for programs and plugins
+# OS Specific
+.DS_Store
+
+# Build Artifacts
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+node_modules
+build
+dist
+.output
+.data
+.nuxt
+.nitro
+.cache
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
-
-# Environment variables
+# Environment Variables
 .env
+.env.*
 !.env.example
 
-# IDEs
+# IDE and Editor Specific
 .idea/
 .vscode/
+.fleet
 *.swp
 *.swo
 
-# OS
-.DS_Store
-
-# Project specific
-build/
+# Logs
+logs
+*.log

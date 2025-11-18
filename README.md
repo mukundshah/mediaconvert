@@ -12,6 +12,7 @@ A scalable media processing service with S3-compatible API, pipeline-based proce
 - **Custom S3 Credentials**: Per-user S3 credentials with bucket isolation
 - **Job Management**: Track, cancel, and rerun processing jobs
 - **Status History**: Complete audit trail of job status changes
+- **Analytics & Metrics**: Real-time job analytics powered by ClickHouse for performance monitoring and insights
 
 ## Architecture
 
@@ -21,7 +22,9 @@ flowchart LR
     APIServer -->|"Job Queue"| Worker["Worker<br/>(Processor)"]
     APIServer -->|"Data Storage"| PostgreSQL["PostgreSQL"]
     APIServer -->|"Job Notifications"| Redis["Redis"]
+    APIServer -->|"Analytics Queries"| ClickHouse["ClickHouse<br/>(Analytics)"]
     Worker -->|"Read/Write Files"| MinIO["MinIO<br/>(S3)"]
+    Worker -->|"Metrics & Logs"| ClickHouse
 ```
 
 ## Prerequisites
@@ -29,6 +32,7 @@ flowchart LR
 - **Go 1.24+**
 - **PostgreSQL 15+**
 - **Redis 7+**
+- **ClickHouse** (optional, for analytics)
 - **MinIO** (or compatible S3 storage)
 - **System Tools**:
   - `ffmpeg` (for video/audio processing)
@@ -55,6 +59,7 @@ This starts:
 
 - PostgreSQL on port `5432`
 - Redis on port `6379`
+- ClickHouse on ports `8123` (HTTP) and `9001` (Native protocol)
 - MinIO on ports `9000` (API) and `9001` (Console)
 
 ### 3. Configure Environment
@@ -64,6 +69,7 @@ Create a `.env` file:
 ```env
 DATABASE_URL=postgres://user:password@localhost:5432/mediaconvert?sslmode=disable
 REDIS_URL=localhost:6379
+CLICKHOUSE_DSN=localhost:9001
 PORT=8080
 S3_ENDPOINT=http://localhost:9000
 S3_ACCESS_KEY=minioadmin
@@ -72,6 +78,8 @@ S3_BUCKET=media
 S3_REGION=us-east-1
 JWT_SECRET=your-secret-key-here
 ```
+
+> **Note**: `CLICKHOUSE_DSN` is optional. If not provided or if ClickHouse is unavailable, the service will continue to work without analytics.
 
 ### 4. Run the Services
 
@@ -162,6 +170,47 @@ curl -X GET http://localhost:8080/api/jobs \
 curl -X GET http://localhost:8080/api/jobs/1 \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
+
+### Analytics
+
+The service provides analytics endpoints powered by ClickHouse for monitoring job performance and usage patterns.
+
+#### Get Job Statistics
+
+```bash
+curl -X GET "http://localhost:8080/api/analytics/jobs/stats?days=7" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+Returns aggregated statistics including:
+
+- Total, completed, failed, pending, and processing jobs
+- Success rate
+- Average processing time
+- Total data processed
+
+#### Get Job Timeline
+
+```bash
+curl -X GET "http://localhost:8080/api/analytics/jobs/timeline?days=7&interval=hour" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+Returns time-series data showing job metrics over time. Supports `hour` and `day` intervals.
+
+#### Get Pipeline Statistics
+
+```bash
+curl -X GET "http://localhost:8080/api/analytics/pipelines/stats?days=30" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+Returns statistics grouped by pipeline, including:
+
+- Total jobs per pipeline
+- Success/failure counts
+- Success rate
+- Average processing time
 
 ## S3-Compatible API
 
@@ -288,6 +337,7 @@ mediaconvert/
 │   ├── server/          # API server
 │   └── worker/          # Background worker
 ├── internal/
+│   ├── analytics/       # ClickHouse analytics client
 │   ├── auth/            # JWT authentication
 │   ├── config/          # Configuration management
 │   ├── db/              # Database connection & migrations
@@ -336,6 +386,7 @@ All configuration is done via environment variables or a `.env` file:
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgres://user:password@localhost:5432/mediaconvert?sslmode=disable` | PostgreSQL connection string |
 | `REDIS_URL` | `localhost:6379` | Redis connection string |
+| `CLICKHOUSE_DSN` | `localhost:9001` | ClickHouse connection string (optional) |
 | `PORT` | `8080` | API server port |
 | `S3_ENDPOINT` | `http://localhost:9000` | S3-compatible storage endpoint |
 | `S3_ACCESS_KEY` | `minioadmin` | S3 access key |
@@ -343,6 +394,22 @@ All configuration is done via environment variables or a `.env` file:
 | `S3_BUCKET` | `media` | Default S3 bucket |
 | `S3_REGION` | `us-east-1` | S3 region |
 | `JWT_SECRET` | `change-this-secret-in-production` | JWT signing secret |
+
+## Analytics
+
+The service automatically records job metrics to ClickHouse when available:
+
+- **Job Metrics**: Processing times, status, file sizes, content types
+- **Status Transitions**: Complete audit trail of job status changes
+- **Pipeline Execution Logs**: Detailed operation-level metrics (optional)
+
+Analytics are **optional** - if ClickHouse is not configured or unavailable, the service continues to function normally without analytics.
+
+### Analytics Tables
+
+- `job_metrics`: Aggregated job execution metrics
+- `job_status_history_analytics`: Time-series job status transitions
+- `pipeline_execution_logs`: Detailed pipeline operation logs
 
 ## Security Considerations
 

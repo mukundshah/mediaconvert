@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/mukund/mediaconvert/internal/analytics"
 	"github.com/mukund/mediaconvert/internal/auth"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/db"
@@ -82,12 +83,28 @@ func main() {
 	}
 	defer redisClient.Close()
 
+	// Connect to ClickHouse (optional - continue if it fails)
+	var analyticsClient *analytics.Client
+	if cfg.ClickHouseDSN != "" {
+		analyticsClient, err = analytics.NewClient(cfg.ClickHouseDSN)
+		if err != nil {
+			log.Printf("Warning: Failed to connect to ClickHouse: %v (analytics disabled)", err)
+		} else {
+			defer analyticsClient.Close()
+			// Initialize schema
+			if err := analyticsClient.InitSchema(ctx); err != nil {
+				log.Printf("Warning: Failed to initialize ClickHouse schema: %v", err)
+			}
+		}
+	}
+
 	// Setup Handlers
 	authHandler := handlers.NewAuthHandler(database)
 	jobHandler := handlers.NewJobHandler(database)
 	pipelineHandler := handlers.NewPipelineHandler(database)
 	s3CredentialHandler := handlers.NewS3CredentialHandler(database)
 	s3Handler := s3compat.NewS3Handler(database, minioClient, cfg, redisClient)
+	analyticsHandler := handlers.NewAnalyticsHandler(analyticsClient)
 
 	// Setup Router
 	r := gin.Default()
@@ -137,6 +154,11 @@ func main() {
 		protected.GET("/s3-credentials", s3CredentialHandler.ListCredentials)
 		protected.GET("/s3-credentials/check-availability", s3CredentialHandler.CheckBucketAvailability)
 		protected.DELETE("/s3-credentials/:id", s3CredentialHandler.RevokeCredentials)
+
+		// Analytics routes
+		protected.GET("/analytics/jobs/stats", analyticsHandler.GetJobStats)
+		protected.GET("/analytics/jobs/timeline", analyticsHandler.GetJobTimeline)
+		protected.GET("/analytics/pipelines/stats", analyticsHandler.GetPipelineStats)
 	}
 
 	// S3-Compatible API routes (separate from /api)

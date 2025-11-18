@@ -14,14 +14,18 @@ type Client struct {
 }
 
 func NewClient(dsn string) (*Client, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{dsn},
-	})
+	opts, err := clickhouse.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ClickHouse DSN: %w", err)
+	}
+
+	conn, err := clickhouse.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to ClickHouse: %w", err)
 	}
 
-	if err := conn.Ping(context.Background()); err != nil {
+	ctx := context.Background()
+	if err := conn.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping ClickHouse: %w", err)
 	}
 

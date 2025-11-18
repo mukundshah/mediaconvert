@@ -11,6 +11,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/mukund/mediaconvert/internal/analytics"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/db"
 	"github.com/mukund/mediaconvert/internal/worker"
@@ -56,8 +57,23 @@ func main() {
 	}
 	defer redisClient.Close()
 
+	// Connect to ClickHouse (optional - continue if it fails)
+	var analyticsClient *analytics.Client
+	if cfg.ClickHouseDSN != "" {
+		analyticsClient, err = analytics.NewClient(cfg.ClickHouseDSN)
+		if err != nil {
+			log.Printf("Warning: Failed to connect to ClickHouse: %v (analytics disabled)", err)
+		} else {
+			defer analyticsClient.Close()
+			// Initialize schema
+			if err := analyticsClient.InitSchema(context.Background()); err != nil {
+				log.Printf("Warning: Failed to initialize ClickHouse schema: %v", err)
+			}
+		}
+	}
+
 	// Create job processor
-	processor := worker.NewJobProcessor(database, minioClient, cfg, redisClient)
+	processor := worker.NewJobProcessor(database, minioClient, cfg, redisClient, analyticsClient)
 
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

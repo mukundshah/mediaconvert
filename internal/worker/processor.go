@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
+	"github.com/mukund/mediaconvert/internal/analytics"
 	"github.com/mukund/mediaconvert/internal/config"
 	"github.com/mukund/mediaconvert/internal/models"
 	"github.com/mukund/mediaconvert/internal/pipeline"
@@ -21,20 +22,25 @@ type JobProcessor struct {
 	minioClient *minio.Client
 	config      *config.Config
 	redis       *RedisClient
+	analytics   *analytics.Client
 }
 
 // NewJobProcessor creates a new job processor
-func NewJobProcessor(db *gorm.DB, minioClient *minio.Client, cfg *config.Config, redis *RedisClient) *JobProcessor {
+func NewJobProcessor(db *gorm.DB, minioClient *minio.Client, cfg *config.Config, redis *RedisClient, analyticsClient *analytics.Client) *JobProcessor {
 	return &JobProcessor{
 		db:          db,
 		minioClient: minioClient,
 		config:      cfg,
 		redis:       redis,
+		analytics:   analyticsClient,
 	}
 }
 
 // ProcessJob processes a single job
 func (p *JobProcessor) ProcessJob(jobID uint) error {
+	startTime := time.Now()
+	ctx := context.Background()
+
 	// Load job with relationships
 	var job models.Job
 	if err := p.db.Preload("File").Preload("Pipeline").First(&job, jobID).Error; err != nil {
@@ -45,6 +51,19 @@ func (p *JobProcessor) ProcessJob(jobID uint) error {
 	job.Status = models.JobStatusProcessing
 	p.db.Save(&job)
 	recordStatusChange(p.db, job.ID, models.JobStatusPending, models.JobStatusProcessing, "Worker started processing", "worker")
+
+	// Record status transition in analytics
+	if p.analytics != nil {
+		p.analytics.RecordJobStatusTransition(ctx, analytics.JobStatusTransition{
+			Timestamp:   time.Now(),
+			JobID:       uint64(job.ID),
+			UserID:      uint64(job.File.UserID),
+			FromStatus:  string(models.JobStatusPending),
+			ToStatus:    string(models.JobStatusProcessing),
+			TriggeredBy: "worker",
+			Message:     "Worker started processing",
+		})
+	}
 
 	// Create work directory
 	workDir := filepath.Join(os.TempDir(), fmt.Sprintf("job-%d", job.ID))
@@ -103,6 +122,43 @@ func (p *JobProcessor) ProcessJob(jobID uint) error {
 	p.db.Save(&job)
 	recordStatusChange(p.db, job.ID, models.JobStatusProcessing, models.JobStatusCompleted, "Job completed successfully", "worker")
 
+	// Record metrics and status transition in analytics
+	if p.analytics != nil {
+		processingTime := time.Since(startTime)
+		var pipelineID *uint64
+		if job.PipelineID != nil {
+			id := uint64(*job.PipelineID)
+			pipelineID = &id
+		}
+
+		// Record job metric
+		p.analytics.RecordJobMetric(ctx, analytics.JobMetric{
+			Timestamp:      time.Now(),
+			JobID:          uint64(job.ID),
+			UserID:         uint64(job.File.UserID),
+			PipelineID:     pipelineID,
+			FileID:         uint64(job.FileID),
+			ContentType:    job.File.ContentType,
+			FileSize:       job.File.Size,
+			Status:         string(job.Status),
+			ProcessingTime: processingTime,
+			CreatedAt:      job.CreatedAt,
+			FinishedAt:     job.FinishedAt,
+			ErrorMessage:   nil,
+		})
+
+		// Record status transition
+		p.analytics.RecordJobStatusTransition(ctx, analytics.JobStatusTransition{
+			Timestamp:   time.Now(),
+			JobID:       uint64(job.ID),
+			UserID:      uint64(job.File.UserID),
+			FromStatus:  string(models.JobStatusProcessing),
+			ToStatus:    string(models.JobStatusCompleted),
+			TriggeredBy: "worker",
+			Message:     "Job completed successfully",
+		})
+	}
+
 	fmt.Printf("Job %d completed successfully\n", job.ID)
 	return nil
 }
@@ -132,12 +188,51 @@ func (p *JobProcessor) uploadResults(userID, jobID uint, files []string) ([]stri
 }
 
 func (p *JobProcessor) failJob(job *models.Job, err error) error {
+	ctx := context.Background()
 	now := time.Now()
 	job.Status = models.JobStatusFailed
 	job.Error = err.Error()
 	job.FinishedAt = &now
 	p.db.Save(job)
 	recordStatusChange(p.db, job.ID, models.JobStatusProcessing, models.JobStatusFailed, err.Error(), "worker")
+
+	// Record metrics and status transition in analytics
+	if p.analytics != nil {
+		errorMsg := err.Error()
+		var pipelineID *uint64
+		if job.PipelineID != nil {
+			id := uint64(*job.PipelineID)
+			pipelineID = &id
+		}
+
+		// Record job metric
+		p.analytics.RecordJobMetric(ctx, analytics.JobMetric{
+			Timestamp:      time.Now(),
+			JobID:          uint64(job.ID),
+			UserID:         uint64(job.File.UserID),
+			PipelineID:     pipelineID,
+			FileID:         uint64(job.FileID),
+			ContentType:    job.File.ContentType,
+			FileSize:       job.File.Size,
+			Status:         string(job.Status),
+			ProcessingTime: 0, // Failed jobs don't have meaningful processing time
+			CreatedAt:      job.CreatedAt,
+			FinishedAt:     job.FinishedAt,
+			ErrorMessage:   &errorMsg,
+		})
+
+		// Record status transition
+		p.analytics.RecordJobStatusTransition(ctx, analytics.JobStatusTransition{
+			Timestamp:   time.Now(),
+			JobID:       uint64(job.ID),
+			UserID:      uint64(job.File.UserID),
+			FromStatus:  string(models.JobStatusProcessing),
+			ToStatus:    string(models.JobStatusFailed),
+			TriggeredBy: "worker",
+			Message:     err.Error(),
+		})
+	}
+
 	return err
 }
 

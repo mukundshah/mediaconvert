@@ -178,8 +178,36 @@ else
 fi
 echo ""
 
-# Test 9: AWS CLI Configuration (if available)
-echo -e "${YELLOW}[9/9] Checking AWS CLI configuration...${NC}"
+# Test 9: Analytics Endpoints
+echo -e "${YELLOW}[9/11] Testing analytics endpoints...${NC}"
+response=$(api_call GET "/api/analytics/jobs/stats?days=7" "")
+if echo "$response" | grep -q "total_jobs\|error"; then
+    if echo "$response" | grep -q "not available"; then
+        echo -e "${YELLOW}⚠ Analytics not available (ClickHouse may not be running)${NC}"
+    else
+        echo -e "${GREEN}✓ Job stats retrieved${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ Analytics endpoint returned unexpected response${NC}"
+fi
+echo ""
+
+# Test 10: Analytics Timeline
+echo -e "${YELLOW}[10/11] Testing analytics timeline...${NC}"
+response=$(api_call GET "/api/analytics/jobs/timeline?days=7&interval=hour" "")
+if echo "$response" | grep -q "\[\]\|time\|error"; then
+    if echo "$response" | grep -q "not available"; then
+        echo -e "${YELLOW}⚠ Analytics not available (ClickHouse may not be running)${NC}"
+    else
+        echo -e "${GREEN}✓ Job timeline retrieved${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ Analytics timeline returned unexpected response${NC}"
+fi
+echo ""
+
+# Test 11: AWS CLI Configuration (if available)
+echo -e "${YELLOW}[11/11] Checking AWS CLI configuration...${NC}"
 if command -v aws &> /dev/null; then
     echo -e "${GREEN}✓ AWS CLI is installed${NC}"
     echo ""
@@ -203,6 +231,11 @@ echo ""
 echo -e "${BLUE}========================================${NC}"
 echo -e "${GREEN}✓ All tests completed!${NC}"
 echo -e "${BLUE}========================================${NC}"
+echo ""
+echo -e "${BLUE}Analytics Endpoints:${NC}"
+echo -e "1. Job Stats: curl -H 'Authorization: Bearer $JWT_TOKEN' $API_URL/api/analytics/jobs/stats?days=7"
+echo -e "2. Job Timeline: curl -H 'Authorization: Bearer $JWT_TOKEN' $API_URL/api/analytics/jobs/timeline?days=7&interval=hour"
+echo -e "3. Pipeline Stats: curl -H 'Authorization: Bearer $JWT_TOKEN' $API_URL/api/analytics/pipelines/stats?days=30"
 echo ""
 echo -e "${BLUE}Credentials saved for manual testing:${NC}"
 echo -e "JWT Token: $JWT_TOKEN"

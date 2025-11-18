@@ -1,8 +1,8 @@
 package config
 
 import (
+	"os"
 	"github.com/spf13/viper"
-	"log"
 )
 
 type Config struct {
@@ -19,14 +19,13 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 
 	// Set defaults
 	viper.SetDefault("PORT", "8080")
 	viper.SetDefault("DATABASE_URL", "postgres://user:password@localhost:5432/mediaconvert?sslmode=disable")
-	viper.SetDefault("REDIS_URL", "localhost:6379")
-	viper.SetDefault("CLICKHOUSE_DSN", "localhost:9001")
+	viper.SetDefault("REDIS_URL", "redis://localhost:6379")
+	viper.SetDefault("CLICKHOUSE_DSN", "clickhouse://default@localhost:9000/default")
 	viper.SetDefault("S3_ENDPOINT", "http://localhost:9000")
 	viper.SetDefault("S3_ACCESS_KEY", "minioadmin")
 	viper.SetDefault("S3_SECRET_KEY", "minioadmin")
@@ -34,13 +33,11 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("S3_REGION", "us-east-1")
 	viper.SetDefault("JWT_SECRET", "change-this-secret-in-production")
 
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			log.Printf("Error reading config file: %v", err)
+	if _, err := os.Stat(".env"); err == nil {
+		viper.SetConfigFile(".env")
+		if err := viper.ReadInConfig(); err != nil {
 			return nil, err
 		}
-		// Config file not found; ignore error if desired
-		log.Println("No .env file found, using environment variables and defaults")
 	}
 
 	var config Config

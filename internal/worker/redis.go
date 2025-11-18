@@ -16,9 +16,15 @@ type RedisClient struct {
 
 // NewRedisClient creates a new Redis client
 func NewRedisClient(addr string) (*RedisClient, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
+	opt, err := redis.ParseURL(addr)
+	if err != nil {
+		// Try direct connection if URL parsing fails
+		opt = &redis.Options{
+			Addr: addr,
+		}
+	}
+
+	client := redis.NewClient(opt)
 
 	// Test connection
 	ctx := context.Background()

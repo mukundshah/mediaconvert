@@ -79,4 +79,12 @@ export default defineNuxtConfig({
     ],
   },
 
+  nitro: {
+    handlers: [
+      {
+        route: '/health',
+        handler: '~/health.ts',
+      },
+    ],
+  },
 })

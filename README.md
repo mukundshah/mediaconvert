@@ -293,23 +293,23 @@ s3.upload_file(
 ### Pipeline Example
 
 ```yaml
-name: "video-process-complete"
-description: "Complete video processing: compress + thumbnail"
+name: video-process-complete
+description: Complete video processing: compress + thumbnail
 steps:
-  - operation: "transcode"
-    input: "${input}"
-    output: "${output}/video.mp4"
+  - operation: transcode
+    input: ${input}
+    output: ${output}/video.mp4
     params:
-      codec: "h264"
+      codec: h264
       quality: 23
-      audio_codec: "aac"
+      audio_codec: aac
 
-  - operation: "generate_thumbnail"
-    input: "${input}"
-    output: "${output}/thumb.jpg"
+  - operation: generate_thumbnail
+    input: ${input}
+    output: ${output}/thumb.jpg
     params:
-      type: "video"
-      timestamp: "00:00:01"
+      type: video
+      timestamp: 00:00:01
       width: 320
       height: 240
 ```

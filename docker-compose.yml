@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: mediaconvert-postgres
+    environment:
+      POSTGRES_USER: mediaconvert
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mediaconvert
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediaconvert"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mediaconvert-network
+
+  valkey:
+    image: valkey/valkey:9-alpine
+    container_name: mediaconvert-valkey
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mediaconvert-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: mediaconvert-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: mediaconvert
+      MINIO_ROOT_PASSWORD: mediaconvert-minio-secret
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mediaconvert-network
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: mediaconvert-clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: mediaconvert
+      CLICKHOUSE_PASSWORD: password
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mediaconvert-network
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: mediaconvert-server
+    environment:
+      DATABASE_URL: postgres://mediaconvert:password@postgres:5432/mediaconvert?sslmode=disable
+      REDIS_URL: redis://valkey:6379
+      CLICKHOUSE_DSN: clickhouse://mediaconvert:password@clickhouse:9000/default
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: mediaconvert
+      S3_SECRET_KEY: mediaconvert-minio-secret
+      S3_BUCKET: media
+      S3_REGION: us-east-1
+      JWTSecret: change-this-secret-in-production
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - mediaconvert-network
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: mediaconvert-worker
+    environment:
+      DATABASE_URL: postgres://mediaconvert:password@postgres:5432/mediaconvert?sslmode=disable
+      REDIS_URL: redis://valkey:6379
+      CLICKHOUSE_DSN: clickhouse://mediaconvert:password@clickhouse:9000/default
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: mediaconvert
+      S3_SECRET_KEY: mediaconvert-minio-secret
+      S3_BUCKET: media
+      S3_REGION: us-east-1
+      JWTSecret: change-this-secret-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      server:
+        condition: service_started
+    networks:
+      - mediaconvert-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  valkey_data:
+  minio_data:
+  clickhouse_data:
+
+networks:
+  mediaconvert-network:
+    driver: bridge

@@ -16,9 +16,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/worker ./cmd/worker
 # Runtime stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates tzdata && \
-    addgroup -g 1000 pulse && \
-    adduser -D -u 1000 -G pulse pulse
+RUN apk --no-cache add ca-certificates tzdata ffmpeg imagemagick poppler-utils && \
+    addgroup -g 1000 mediaconvert && \
+    adduser -D -u 1000 -G mediaconvert mediaconvert
 
 WORKDIR /app
 
@@ -26,10 +26,10 @@ WORKDIR /app
 COPY --from=builder /app/bin/worker /app/worker
 
 # Change ownership
-RUN chown -R pulse:pulse /app
+RUN chown -R mediaconvert:mediaconvert /app
 
 # Switch to non-root user
-USER pulse
+USER mediaconvert
 
 # Run the worker
 CMD ["/app/worker"]

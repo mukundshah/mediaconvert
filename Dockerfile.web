@@ -1,0 +1,49 @@
+FROM node:24-alpine AS base
+
+RUN apk add --no-cache \
+    openssl \
+    ca-certificates \
+    && update-ca-certificates \
+    && corepack enable pnpm
+
+WORKDIR /app
+
+RUN addgroup -S -g 1001 nodejs && \
+    adduser -S -u 1001 nuxt -G nodejs
+
+# Dependencies stage
+FROM base AS deps
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml ./
+
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Builder stage
+FROM base AS builder
+
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json /app/pnpm-lock.yaml ./
+COPY . .
+
+RUN --mount=type=cache,target=/app/node_modules/.cache \
+    pnpm build
+
+# Production stage
+FROM base AS app
+
+WORKDIR /app
+
+COPY --from=builder --chown=nuxt:nodejs /app/.output ./output
+
+USER nuxt
+
+EXPOSE 3000
+
+CMD ["node", "output/server/index.mjs"]

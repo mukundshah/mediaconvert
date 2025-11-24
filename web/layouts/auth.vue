@@ -5,7 +5,7 @@ useHead({ titleTemplate: '%siteName %separator %s' })
 </script>
 
 <template>
-  <div>
+  <div class="magicpattern">
     <header class="py-2 px-2 sm:px-4 flex items-center justify-end">
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
@@ -31,3 +31,18 @@ useHead({ titleTemplate: '%siteName %separator %s' })
     <slot></slot>
   </div>
 </template>
+
+<style>
+.magicpattern {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: repeat;
+  background-image: url('assets/svgs/magicpattern.svg');
+}
+
+.dark .magicpattern {
+  background-image: url('assets/svgs/magicpattern-dark.svg');
+}
+</style>

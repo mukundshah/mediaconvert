@@ -1,0 +1,4 @@
+- [ ] Redis Worker
+- [ ] Good Management UI
+- [ ] Clickhouse
+- [ ] WebSocket for Real time status updates on the dashboard
